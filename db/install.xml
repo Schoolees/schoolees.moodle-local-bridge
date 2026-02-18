@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/schooleescore_bridge/db" VERSION="2026021700" COMMENT="XMLDB file for local_schooleescore_bridge"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+  <TABLES>
+    <TABLE NAME="local_ses_bridge_config" COMMENT="Tenant-level bridge settings.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="tenant_code" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="api_base_url" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="client_id" TYPE="char" LENGTH="128" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="client_secret_enc" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="webhook_secret_enc" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="default_term_code" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="enable_payment_gating" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="createdat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="updatedat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_tenant_code" UNIQUE="true" FIELDS="tenant_code"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ses_user_map" COMMENT="User identity map between Moodle and SchooleesCore.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="moodle_userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="schooleescore_user_id" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="schooleescore_student_no" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="user_type" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="sync_status" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="last_synced_at" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="profile_picture_url" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="profile_picture_hash" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="profile_picture_synced_at" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="createdat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="updatedat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_moodle_userid" UNIQUE="true" FIELDS="moodle_userid"/>
+        <INDEX NAME="uniq_ses_user_id" UNIQUE="true" FIELDS="schooleescore_user_id"/>
+        <INDEX NAME="idx_sync_status" UNIQUE="false" FIELDS="sync_status"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ses_course_map" COMMENT="Course mapping by academic period.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="moodle_courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="schooleescore_subject_id" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="schooleescore_section_id" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="academic_year_code" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="semester_code" TYPE="char" LENGTH="32" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="sync_enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="createdat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="updatedat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_course_term" UNIQUE="true" FIELDS="moodle_courseid, academic_year_code, semester_code"/>
+        <INDEX NAME="idx_subject_section" UNIQUE="false" FIELDS="schooleescore_subject_id, schooleescore_section_id"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ses_enrollment_map" COMMENT="Enrollment state map and drift tracking.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="moodle_userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="moodle_courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="schooleescore_enrollment_id" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="role_shortname" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="last_synced_at" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="createdat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="updatedat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_user_course" UNIQUE="true" FIELDS="moodle_userid, moodle_courseid"/>
+        <INDEX NAME="uniq_ses_enrollment" UNIQUE="true" FIELDS="schooleescore_enrollment_id"/>
+        <INDEX NAME="idx_status" UNIQUE="false" FIELDS="status"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ses_grade_queue" COMMENT="Queue for reliable grade passback.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="idempotency_key" TYPE="char" LENGTH="128" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="moodle_grade_itemid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="moodle_userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="moodle_courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="grade_raw" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="grade_final" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="grade_letter" TYPE="char" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="grading_period_code" TYPE="char" LENGTH="32" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="payload_json" TYPE="text" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="attempt_count" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="next_attempt_at" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="last_error" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="createdat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="updatedat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_idempotency" UNIQUE="true" FIELDS="idempotency_key"/>
+        <INDEX NAME="idx_status_next_attempt" UNIQUE="false" FIELDS="status, next_attempt_at"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ses_sync_log" COMMENT="Operational sync log.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="trace_id" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="job_name" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="entity_type" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="entity_key" TYPE="char" LENGTH="128" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="direction" TYPE="char" LENGTH="16" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="request_json" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="response_json" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="http_status" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="result" TYPE="char" LENGTH="16" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="error_code" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="error_message" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="duration_ms" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="createdat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="idx_trace_id" UNIQUE="false" FIELDS="trace_id"/>
+        <INDEX NAME="idx_job_entity" UNIQUE="false" FIELDS="job_name, entity_type"/>
+        <INDEX NAME="idx_result_createdat" UNIQUE="false" FIELDS="result, createdat"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_ses_payment_cache" COMMENT="Cached payment and clearance state.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="moodle_userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="term_code" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="payment_status" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="clearance_status" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="rules_json" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="updatedat" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_user_term" UNIQUE="true" FIELDS="moodle_userid, term_code"/>
+      </INDEXES>
+    </TABLE>
+  </TABLES>
+</XMLDB>
