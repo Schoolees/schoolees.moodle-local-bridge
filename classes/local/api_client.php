@@ -87,10 +87,10 @@ class api_client {
         ];
 
         if ($method === 'POST') {
-            $options['CURLOPT_POSTFIELDS'] = json_encode($payload);
+            $body = $curl->post($url, json_encode($payload), $options);
+        } else {
+            $body = $curl->get($url, [], $options);
         }
-
-        $body = $curl->get($url, [], $options);
         $info = $curl->get_info();
         $status = (int)($info['http_code'] ?? 0);
         $decoded = json_decode((string)$body, true);

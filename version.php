@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_schooleescore_bridge';
-$plugin->version = 2026021900;
-$plugin->release = 'v0.1.18';
+$plugin->version = 2026021901;
+$plugin->release = 'v0.1.19';
 $plugin->requires = 2025041400; // Moodle 5.0+.
 $plugin->supported = [500, 599];
 $plugin->maturity = MATURITY_BETA;
