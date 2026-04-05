@@ -49,9 +49,7 @@ class dispatch_grade_queue_task extends base_bridge_task {
                 $response = $client->post_json($endpoint, $payload, (string)$record->idempotency_key);
                 $durationms = (int)round((microtime(true) - $start) * 1000);
 
-                $isduplicate = ($response['status'] ?? 0) === 422 &&
-                    strpos((string)($response['raw'] ?? ''), 'Grade already exists') !== false;
-                if ((($response['status'] ?? 0) >= 200 && ($response['status'] ?? 0) < 300) || $isduplicate) {
+                if ((($response['status'] ?? 0) >= 200 && ($response['status'] ?? 0) < 300)) {
                     circuit_breaker::record_result($endpoint, true);
                     queue_service::mark_sent($record);
                     sync_log_service::log([
@@ -63,6 +61,24 @@ class dispatch_grade_queue_task extends base_bridge_task {
                         'request_json' => $payload,
                         'response_json' => $response['body'] ?? null,
                         'http_status' => $response['status'] ?? null,
+                        'result' => 'success',
+                        'duration_ms' => $durationms,
+                    ]);
+                    continue;
+                }
+
+                if ($this->is_duplicate_grade_response($response) && $this->update_existing_grade($client, $payload)) {
+                    circuit_breaker::record_result($endpoint, true);
+                    queue_service::mark_sent($record);
+                    sync_log_service::log([
+                        'trace_id' => $traceid,
+                        'job_name' => 'dispatch_grade_queue',
+                        'entity_type' => 'grade',
+                        'entity_key' => (string)$record->id,
+                        'direction' => 'push',
+                        'request_json' => $payload,
+                        'response_json' => ['mode' => 'upsert', 'duplicate' => true],
+                        'http_status' => 200,
                         'result' => 'success',
                         'duration_ms' => $durationms,
                     ]);
@@ -130,10 +146,11 @@ class dispatch_grade_queue_task extends base_bridge_task {
             $enrollparams['academic_year_id'] = $term;
         }
         $enrollresponse = $client->get_json('/students-enrolled', $enrollparams);
-        if (($enrollresponse['status'] ?? 0) !== 200 || empty($enrollresponse['body']['data'][0])) {
+        $enrollrows = api_client::extract_rows($enrollresponse['body'] ?? null);
+        if (($enrollresponse['status'] ?? 0) !== 200 || empty($enrollrows[0])) {
             return [];
         }
-        $entry = $enrollresponse['body']['data'][0];
+        $entry = $enrollrows[0];
 
         $academicyearid = (int)($entry['academic_year']['id'] ?? 0);
         $yearlevelid = (int)($entry['year_level']['id'] ?? 0);
@@ -142,9 +159,12 @@ class dispatch_grade_queue_task extends base_bridge_task {
             return [];
         }
 
-        $gradecategoryid = (int)get_config('local_schooleescore_bridge', 'default_grade_category_id');
-        if ($gradecategoryid <= 0) {
-            $gradecategoryid = 1;
+        $gradeperiodid = (int)get_config('local_schooleescore_bridge', 'default_grade_period_id');
+        if ($gradeperiodid <= 0) {
+            $gradeperiodid = (int)get_config('local_schooleescore_bridge', 'default_grade_category_id');
+        }
+        if ($gradeperiodid <= 0) {
+            $gradeperiodid = 1;
         }
 
         $gradevalue = $record->grade_final;
@@ -156,14 +176,71 @@ class dispatch_grade_queue_task extends base_bridge_task {
         }
 
         return [
-            'grade_category_id' => $gradecategoryid,
+            'grade_period_id' => $gradeperiodid,
             'academic_year_id' => $academicyearid,
             'year_level_id' => $yearlevelid,
             'strands_id' => $strandsid > 0 ? $strandsid : null,
             'student_id' => $studentid,
             'teacher_id' => null,
             'subject_id' => $subjectid,
+            'grade_input' => (string)round((float)$gradevalue, 2),
             'grade' => round((float)$gradevalue, 2),
         ];
+    }
+
+    /**
+     * @param array $response
+     * @return bool
+     */
+    private function is_duplicate_grade_response(array $response): bool {
+        if (($response['status'] ?? 0) !== 422) {
+            return false;
+        }
+
+        $raw = (string)($response['raw'] ?? '');
+        if (strpos($raw, 'Grade already exists') !== false) {
+            return true;
+        }
+
+        $error = strtolower((string)($response['body']['error'] ?? ''));
+        return strpos($error, 'grade already exists') !== false;
+    }
+
+    /**
+     * Update an existing remote grade when create returns a duplicate response.
+     *
+     * @param api_client $client
+     * @param array $payload
+     * @return bool
+     */
+    private function update_existing_grade(api_client $client, array $payload): bool {
+        $lookup = [
+            'grade_period_id' => (int)($payload['grade_period_id'] ?? 0),
+            'academic_year_id' => (int)($payload['academic_year_id'] ?? 0),
+            'year_level_id' => (int)($payload['year_level_id'] ?? 0),
+            'student_id' => (int)($payload['student_id'] ?? 0),
+            'subject_id' => (int)($payload['subject_id'] ?? 0),
+            'limit' => 1,
+            'offset' => 0,
+        ];
+
+        $lookupresponse = $client->get_json('/grades', $lookup);
+        if (($lookupresponse['status'] ?? 0) !== 200) {
+            return false;
+        }
+
+        $rows = api_client::extract_rows($lookupresponse['body'] ?? null);
+        $gradeid = (int)($rows[0]['id'] ?? 0);
+        if ($gradeid <= 0) {
+            return false;
+        }
+
+        $updatepayload = [
+            'grade_input' => (string)($payload['grade_input'] ?? ''),
+            'grade' => $payload['grade'] ?? null,
+        ];
+        $updateresponse = $client->put_json('/grades/' . $gradeid, $updatepayload);
+
+        return (($updateresponse['status'] ?? 0) >= 200 && ($updateresponse['status'] ?? 0) < 300);
     }
 }

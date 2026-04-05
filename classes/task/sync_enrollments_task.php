@@ -31,29 +31,40 @@ class sync_enrollments_task extends base_bridge_task {
 
         try {
             $client = new api_client();
-            $params = [
+            $rows = [];
+            $baseparams = [
                 'limit' => 1000,
-                'offset' => 0,
             ];
             $term = (string)get_config('local_schooleescore_bridge', 'default_term_code');
             if ($term !== '') {
-                $params['academic_year_id'] = $term;
+                $baseparams['academic_year_id'] = $term;
             }
-            $response = $client->get_json('/students-enrolled', $params);
-            if (($response['status'] ?? 0) !== 200) {
-                sync_log_service::log([
-                    'job_name' => 'sync_enrollments',
-                    'entity_type' => 'enrollment',
-                    'direction' => 'pull',
-                    'http_status' => $response['status'] ?? null,
-                    'response_json' => $response['body'] ?? null,
-                    'result' => 'failure',
-                    'error_message' => 'Failed to fetch enrollments.',
-                ]);
-                return;
-            }
+            $limit = (int)$baseparams['limit'];
+            $offset = 0;
+            do {
+                $params = $baseparams;
+                $params['offset'] = $offset;
+                $response = $client->get_json('/students-enrolled', $params);
+                if (($response['status'] ?? 0) !== 200) {
+                    sync_log_service::log([
+                        'job_name' => 'sync_enrollments',
+                        'entity_type' => 'enrollment',
+                        'direction' => 'pull',
+                        'http_status' => $response['status'] ?? null,
+                        'response_json' => $response['body'] ?? null,
+                        'result' => 'failure',
+                        'error_message' => 'Failed to fetch enrollments.',
+                    ]);
+                    return;
+                }
 
-            $rows = $this->extract_rows($response['body'] ?? null);
+                $batch = api_client::extract_rows($response['body'] ?? null);
+                if (!empty($batch)) {
+                    $rows = array_merge($rows, $batch);
+                }
+                $offset += $limit;
+            } while (!empty($batch) && count($batch) >= $limit);
+
             $enrolledstudentids = $this->build_ongoing_student_set($rows);
             $suspendunenrolled = ((int)get_config('local_schooleescore_bridge', 'suspend_unenrolled_students') === 1);
 
@@ -129,27 +140,6 @@ class sync_enrollments_task extends base_bridge_task {
         } finally {
             $this->release_lock();
         }
-    }
-
-    /**
-     * Extract rows from API response body.
-     *
-     * @param mixed $body
-     * @return array
-     */
-    private function extract_rows($body): array {
-        if (!is_array($body)) {
-            return [];
-        }
-        if (!empty($body['data']) && is_array($body['data'])) {
-            if (array_key_exists(0, $body['data'])) {
-                return $body['data'];
-            }
-            if (!empty($body['data']['data']) && is_array($body['data']['data'])) {
-                return $body['data']['data'];
-            }
-        }
-        return [];
     }
 
     /**

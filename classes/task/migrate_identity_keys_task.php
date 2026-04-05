@@ -136,7 +136,7 @@ class migrate_identity_keys_task extends base_bridge_task {
                 return [];
             }
 
-            $rows = $this->extract_rows($response['body'] ?? null);
+            $rows = api_client::extract_rows($response['body'] ?? null);
             foreach ($rows as $row) {
                 $oldid = clean_param((string)(field_mapping::get_by_path($row, $sourcepath) ?? ''), PARAM_RAW_TRIMMED);
                 $idnumber = clean_param((string)(field_mapping::get_by_path($row, $targetpath) ?? ''), PARAM_RAW_TRIMMED);
@@ -150,24 +150,4 @@ class migrate_identity_keys_task extends base_bridge_task {
         return $result;
     }
 
-    /**
-     * Extract row list from wrapped API response.
-     *
-     * @param mixed $body
-     * @return array
-     */
-    private function extract_rows($body): array {
-        if (!is_array($body)) {
-            return [];
-        }
-        if (!empty($body['data']) && is_array($body['data'])) {
-            if (array_key_exists(0, $body['data'])) {
-                return $body['data'];
-            }
-            if (!empty($body['data']['data']) && is_array($body['data']['data'])) {
-                return $body['data']['data'];
-            }
-        }
-        return [];
-    }
 }

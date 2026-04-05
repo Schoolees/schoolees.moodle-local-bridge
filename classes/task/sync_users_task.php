@@ -52,7 +52,7 @@ class sync_users_task extends base_bridge_task {
                     return;
                 }
 
-                $batch = $this->extract_rows($response['body'] ?? null);
+                $batch = api_client::extract_rows($response['body'] ?? null);
                 if (!empty($batch)) {
                     $rows = array_merge($rows, $batch);
                 }

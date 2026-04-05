@@ -48,6 +48,39 @@ class api_client {
     }
 
     /**
+     * Put endpoint JSON data.
+     *
+     * @param string $path
+     * @param array $payload
+     * @param bool $authrequired
+     * @return array
+     */
+    public function put_json(string $path, array $payload, bool $authrequired = true): array {
+        return $this->request('PUT', $this->baseurl . $path, $payload, '', $authrequired);
+    }
+
+    /**
+     * Extract row arrays from supported API response wrappers.
+     *
+     * @param mixed $body
+     * @return array
+     */
+    public static function extract_rows($body): array {
+        if (!is_array($body)) {
+            return [];
+        }
+        if (!empty($body['data']) && is_array($body['data'])) {
+            if (array_key_exists(0, $body['data'])) {
+                return $body['data'];
+            }
+            if (!empty($body['data']['data']) && is_array($body['data']['data'])) {
+                return $body['data']['data'];
+            }
+        }
+        return [];
+    }
+
+    /**
      * Request helper.
      *
      * @param string $method
@@ -88,6 +121,8 @@ class api_client {
 
         if ($method === 'POST') {
             $body = $curl->post($url, json_encode($payload), $options);
+        } else if ($method === 'PUT') {
+            $body = $curl->put($url, json_encode($payload), $options);
         } else {
             $body = $curl->get($url, [], $options);
         }
