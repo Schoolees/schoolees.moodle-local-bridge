@@ -36,6 +36,19 @@ class provider implements
             'payload_json' => 'privacy:metadata:local_ses_grade_queue:payload_json',
         ], 'privacy:metadata:local_ses_grade_queue');
 
+        $collection->add_database_table('local_ses_payment_cache', [
+            'moodle_userid' => 'privacy:metadata:local_ses_payment_cache:moodle_userid',
+            'payment_status' => 'privacy:metadata:local_ses_payment_cache:payment_status',
+            'clearance_status' => 'privacy:metadata:local_ses_payment_cache:clearance_status',
+        ], 'privacy:metadata:local_ses_payment_cache');
+
+        $collection->add_external_location_link('schooleescore', [
+            'userid' => 'privacy:metadata:schooleescore:userid',
+            'fullname' => 'privacy:metadata:schooleescore:fullname',
+            'email' => 'privacy:metadata:schooleescore:email',
+            'grade' => 'privacy:metadata:schooleescore:grade',
+        ], 'privacy:metadata:schooleescore');
+
         return $collection;
     }
 
@@ -44,9 +57,46 @@ class provider implements
      * @return contextlist
      */
     public static function get_contexts_for_userid(int $userid): contextlist {
+        global $DB;
+
         $contextlist = new contextlist();
-        $contextlist->add_system_context();
+
+        $tables = [
+            'local_ses_user_map',
+            'local_ses_enrollment_map',
+            'local_ses_grade_queue',
+            'local_ses_payment_cache',
+        ];
+        foreach ($tables as $table) {
+            if ($DB->record_exists($table, ['moodle_userid' => $userid])) {
+                $contextlist->add_system_context();
+                break;
+            }
+        }
+
         return $contextlist;
+    }
+
+    /**
+     * Delete every user's bridge data held in the given context.
+     *
+     * Required by \core_privacy\local\request\plugin\provider; without it the
+     * class does not satisfy the interface and fatals as soon as the privacy
+     * registry loads it.
+     *
+     * @param \context $context
+     */
+    public static function delete_data_for_all_users_in_context(\context $context): void {
+        global $DB;
+
+        if ($context->contextlevel != CONTEXT_SYSTEM) {
+            return;
+        }
+
+        $DB->delete_records('local_ses_user_map');
+        $DB->delete_records('local_ses_enrollment_map');
+        $DB->delete_records('local_ses_grade_queue');
+        $DB->delete_records('local_ses_payment_cache');
     }
 
     /**

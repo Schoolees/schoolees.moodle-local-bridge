@@ -14,6 +14,9 @@ require_once($CFG->libdir . '/gdlib.php');
  * Pull users from SchooleesCore and map to Moodle users.
  */
 class sync_users_task extends base_bridge_task {
+    /** @var int Page size for the student pull. */
+    private const PAGE_SIZE = 500;
+
     /**
      * @return string
      */
@@ -34,11 +37,15 @@ class sync_users_task extends base_bridge_task {
 
         try {
             $client = new api_client();
-            $rows = [];
-            $limit = 500;
-            $offset = 0;
-            do {
-                $response = $client->get_json('/students', ['limit' => $limit, 'offset' => $offset]);
+
+            $processed = 0;
+            $created = 0;
+            $mapped = 0;
+            $failed = 0;
+
+            // Handle each page as it arrives: buffering every student first meant
+            // peak memory grew with the size of the school.
+            foreach ($client->each_page(api_client::PATH_STUDENTS, [], self::PAGE_SIZE) as [$rows, $response]) {
                 if (($response['status'] ?? 0) !== 200) {
                     sync_log_service::log([
                         'job_name' => 'sync_users',
@@ -52,104 +59,104 @@ class sync_users_task extends base_bridge_task {
                     return;
                 }
 
-                $batch = api_client::extract_rows($response['body'] ?? null);
-                if (!empty($batch)) {
-                    $rows = array_merge($rows, $batch);
-                }
-                $offset += $limit;
-            } while (!empty($batch) && count($batch) >= $limit);
+                foreach ($rows as $user) {
+                    if (!is_array($user)) {
+                        continue;
+                    }
+                    $processed++;
+                    $createdthis = false;
+                    $moodleuser = $this->find_or_create_moodle_user($user, $createdthis);
+                    if (!$moodleuser) {
+                        $failed++;
+                        continue;
+                    }
+                    if ($createdthis) {
+                        $created++;
+                    }
 
-            if (empty($rows)) {
-                sync_log_service::log([
-                    'job_name' => 'sync_users',
-                    'entity_type' => 'user',
-                    'direction' => 'pull',
-                    'http_status' => 200,
-                    'result' => 'success',
-                    'response_json' => ['processed' => 0, 'note' => 'No user rows returned from API.'],
-                ]);
-                return;
-            }
+                    $now = time();
+                    $identitykey = clean_param((string)field_mapping::get_by_path(
+                        $user,
+                        field_mapping::cfg('map_user_username_path', 'id_number')
+                    ), PARAM_RAW_TRIMMED);
+                    $externalid = clean_param((string)field_mapping::get_by_path(
+                        $user,
+                        field_mapping::cfg('map_user_external_id_path', 'id')
+                    ), PARAM_RAW_TRIMMED);
+                    if ($identitykey === '') {
+                        $identitykey = $externalid;
+                    }
 
-            $processed = 0;
-            $created = 0;
-            $mapped = 0;
-            $failed = 0;
-            foreach ($rows as $user) {
-                $processed++;
-                $createdthis = false;
-                $moodleuser = $this->find_or_create_moodle_user($user, $createdthis);
-                if (!$moodleuser) {
-                    $failed++;
-                    continue;
-                }
-                if ($createdthis) {
-                    $created++;
-                }
-
-                $now = time();
-                $identitykey = clean_param((string)field_mapping::get_by_path(
-                    $user,
-                    field_mapping::cfg('map_user_username_path', 'id_number')
-                ), PARAM_RAW_TRIMMED);
-                $externalid = clean_param((string)field_mapping::get_by_path(
-                    $user,
-                    field_mapping::cfg('map_user_external_id_path', 'id')
-                ), PARAM_RAW_TRIMMED);
-                if ($identitykey === '') {
-                    $identitykey = $externalid;
-                }
-
-                $map = $DB->get_record('local_ses_user_map', ['moodle_userid' => (int)$moodleuser->id]);
-                if ($map) {
-                    $map->schooleescore_user_id = $identitykey;
-                    $map->schooleescore_student_no = (string)field_mapping::get_by_path(
+                    $studentno = $this->scalar(field_mapping::get_by_path(
                         $user,
                         field_mapping::cfg('map_user_idnumber_path', 'id_number')
-                    );
-                    $map->user_type = (string)(field_mapping::get_by_path(
+                    ));
+                    $usertype = $this->scalar(field_mapping::get_by_path(
                         $user,
                         field_mapping::cfg('map_user_type_path', 'user_type')
-                    ) ?? 'student');
-                    $map->sync_status = 'active';
-                    $map->last_synced_at = $now;
-                    $map->updatedat = $now;
-                    $DB->update_record('local_ses_user_map', $map);
-                } else {
-                    $record = (object)[
-                        'moodle_userid' => (int)$moodleuser->id,
-                        'schooleescore_user_id' => $identitykey,
-                        'schooleescore_student_no' => (string)field_mapping::get_by_path(
-                            $user,
-                            field_mapping::cfg('map_user_idnumber_path', 'id_number')
-                        ),
-                        'user_type' => (string)(field_mapping::get_by_path(
-                            $user,
-                            field_mapping::cfg('map_user_type_path', 'user_type')
-                        ) ?? 'student'),
-                        'sync_status' => 'active',
-                        'last_synced_at' => $now,
-                        'createdat' => $now,
-                        'updatedat' => $now,
-                    ];
-                    $record->id = (int)$DB->insert_record('local_ses_user_map', $record);
-                    $map = $record;
-                }
-                $mapped++;
+                    ));
+                    if ($usertype === '') {
+                        $usertype = 'student';
+                    }
 
-                // Optional: profile picture sync (non-fatal).
-                try {
-                    $this->sync_profile_picture($moodleuser, $map, $user);
-                } catch (\Throwable $e) {
-                    // Keep user sync resilient; log detail separately.
-                    sync_log_service::log([
-                        'job_name' => 'sync_user_picture',
-                        'entity_type' => 'user',
-                        'entity_key' => (string)$moodleuser->id,
-                        'direction' => 'pull',
-                        'result' => 'failure',
-                        'error_message' => 'Profile picture sync failed: ' . $e->getMessage(),
-                    ]);
+                    try {
+                        $map = $DB->get_record('local_ses_user_map', ['moodle_userid' => (int)$moodleuser->id]);
+                        if ($map) {
+                            $map->schooleescore_user_id = $identitykey;
+                            $map->schooleescore_student_no = $studentno;
+                            // The identity key is an id_number; the remote primary key is
+                            // kept alongside it so grade passback stops guessing at it.
+                            $map->schooleescore_external_id = $externalid !== '' ? $externalid : null;
+                            $map->user_type = $usertype;
+                            $map->sync_status = 'active';
+                            $map->last_synced_at = $now;
+                            $map->updatedat = $now;
+                            $DB->update_record('local_ses_user_map', $map);
+                        } else {
+                            $record = (object)[
+                                'moodle_userid' => (int)$moodleuser->id,
+                                'schooleescore_user_id' => $identitykey,
+                                'schooleescore_student_no' => $studentno,
+                                'schooleescore_external_id' => $externalid !== '' ? $externalid : null,
+                                'user_type' => $usertype,
+                                'sync_status' => 'active',
+                                'last_synced_at' => $now,
+                                'createdat' => $now,
+                                'updatedat' => $now,
+                            ];
+                            $record->id = (int)$DB->insert_record('local_ses_user_map', $record);
+                            $map = $record;
+                        }
+                    } catch (\Throwable $exception) {
+                        // schooleescore_user_id is unique: two API rows sharing an
+                        // id_number used to abort the whole run on the second one.
+                        $failed++;
+                        sync_log_service::log([
+                            'job_name' => 'sync_users',
+                            'entity_type' => 'user',
+                            'entity_key' => $identitykey,
+                            'direction' => 'pull',
+                            'result' => 'failure',
+                            'error_message' => 'Could not write identity map: ' . $exception->getMessage(),
+                        ]);
+                        continue;
+                    }
+                    $mapped++;
+
+                    // Optional: profile picture sync (non-fatal).
+                    try {
+                        $this->sync_profile_picture($moodleuser, $map, $user);
+                    } catch (\Throwable $e) {
+                        // Keep user sync resilient; log detail separately.
+                        sync_log_service::log([
+                            'job_name' => 'sync_user_picture',
+                            'entity_type' => 'user',
+                            'entity_key' => (string)$moodleuser->id,
+                            'direction' => 'pull',
+                            'result' => 'failure',
+                            'error_message' => 'Profile picture sync failed: ' . $e->getMessage(),
+                        ]);
+                    }
                 }
             }
 
@@ -209,9 +216,14 @@ class sync_users_task extends base_bridge_task {
         $created = false;
         $moodleuser = null;
 
-        // Primary identity key maps to Moodle username.
+        // Primary identity key maps to Moodle username. Scope to the local mnet
+        // host: usernames are only unique per host, so an unscoped lookup can
+        // match (and then rewrite) a remote MNet account.
         if ($usernamekey !== '') {
-            $moodleuser = $DB->get_record('user', ['username' => $usernamekey]);
+            $moodleuser = $DB->get_record('user', [
+                'username' => $usernamekey,
+                'mnethostid' => $CFG->mnet_localhost_id,
+            ]);
         }
         if ($moodleuser) {
             if ((int)$moodleuser->deleted === 1) {
@@ -235,19 +247,9 @@ class sync_users_task extends base_bridge_task {
         $baseusername = $usernamekey !== '' ? $usernamekey : ($idnumber !== '' ? $idnumber : ('ext_' . $externalid));
         $username = $this->unique_username($baseusername);
         if ($email === '') {
-            $stub = preg_replace('/[^a-z0-9]/', '', strtolower($username));
-            if ($stub === '') {
-                $stub = 'student';
-            }
-            $email = $stub . '@schooleescore.local';
+            $email = $this->placeholder_email($username);
         }
 
-        if ($firstname === '') {
-            $firstname = 'Student';
-        }
-        if ($lastname === '') {
-            $lastname = 'Unknown';
-        }
         if ($firstname === '') {
             $firstname = 'Student';
         }
@@ -274,17 +276,23 @@ class sync_users_task extends base_bridge_task {
             // Set a real Moodle password hash during user creation.
             $newuserid = user_create_user($newuser, true, false);
         } catch (\Throwable $exception) {
-            $newuser->password = $this->build_policy_safe_password($idnumber, $username, $externalid, $email);
+            // The realistic cause is an address already in use on a site that does
+            // not allow duplicates. Retrying with identical data (as this used to)
+            // just reproduced the same error, so fall back to a unique placeholder.
+            if (empty($CFG->allowaccountssameemail) && $DB->record_exists('user', ['email' => $email, 'deleted' => 0])) {
+                $newuser->email = $this->placeholder_email($username, true);
+            }
             try {
                 $newuserid = user_create_user($newuser, true, false);
             } catch (\Throwable $exception2) {
                 sync_log_service::log([
                     'job_name' => 'sync_users',
                     'entity_type' => 'user',
-                    'entity_key' => $externalid,
+                    'entity_key' => $externalid !== '' ? $externalid : $username,
                     'direction' => 'pull',
                     'result' => 'failure',
                     'error_message' => 'Failed creating Moodle user: ' . $exception2->getMessage(),
+                    'response_json' => ['username' => $username, 'first_error' => $exception->getMessage()],
                 ]);
                 return null;
             }
@@ -372,14 +380,21 @@ class sync_users_task extends base_bridge_task {
     }
 
     /**
-     * Build fallback password that usually passes strict policies.
+     * Build the placeholder address used when the API carries no email.
      *
-     * @param string $idnumber
      * @param string $username
+     * @param bool $unique Append a discriminator so the address cannot collide.
      * @return string
      */
-    private function build_policy_safe_password(string $idnumber, string $username, string $externalid = '', string $email = ''): string {
-        return $this->build_initial_password($idnumber, $username, $externalid, $email);
+    private function placeholder_email(string $username, bool $unique = false): string {
+        $stub = preg_replace('/[^a-z0-9]/', '', strtolower($username));
+        if ($stub === '') {
+            $stub = 'student';
+        }
+        if ($unique) {
+            $stub .= '.' . substr(sha1($username . microtime(true)), 0, 8);
+        }
+        return $stub . '@schooleescore.local';
     }
 
     /**
@@ -391,7 +406,12 @@ class sync_users_task extends base_bridge_task {
      * @param string $email
      * @return string
      */
-    private function build_initial_password(string $idnumber, string $username, string $externalid = '', string $email = ''): string {
+    private function build_initial_password(
+        string $idnumber,
+        string $username,
+        string $externalid = '',
+        string $email = ''
+    ): string {
         $template = field_mapping::cfg('default_password_template', '~!@Adsco{id_number}');
         if (trim($template) === '') {
             $template = '~!@Adsco{id_number}';
@@ -736,23 +756,18 @@ class sync_users_task extends base_bridge_task {
     }
 
     /**
-     * Extract user rows from API response that may be paginated/resource-wrapped.
+     * Coerce a mapped value to a scalar string.
      *
-     * @param mixed $body
-     * @return array
+     * get_by_path() can legitimately land on a nested array when a site points a
+     * mapping at an object; casting that straight to string emits "Array".
+     *
+     * @param mixed $value
+     * @return string
      */
-    private function extract_rows($body): array {
-        if (!is_array($body)) {
-            return [];
+    private function scalar($value): string {
+        if ($value === null || is_array($value) || is_object($value)) {
+            return '';
         }
-        if (!empty($body['data']) && is_array($body['data'])) {
-            if (array_key_exists(0, $body['data'])) {
-                return $body['data'];
-            }
-            if (!empty($body['data']['data']) && is_array($body['data']['data'])) {
-                return $body['data']['data'];
-            }
-        }
-        return [];
+        return trim((string)$value);
     }
 }

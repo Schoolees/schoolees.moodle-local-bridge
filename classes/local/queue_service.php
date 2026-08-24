@@ -9,6 +9,9 @@ defined('MOODLE_INTERNAL') || die();
  * Grade queue operations.
  */
 class queue_service {
+    /** @var int A row left "processing" longer than this is treated as abandoned. */
+    private const PROCESSING_TIMEOUT = 1800;
+
     /**
      * Enqueue grade passback record.
      *
@@ -26,7 +29,23 @@ class queue_service {
             isset($grade['grade_final']) ? (float)$grade['grade_final'] : null
         );
 
-        if ($DB->record_exists('local_ses_grade_queue', ['idempotency_key' => $idempotency])) {
+        $existing = $DB->get_record('local_ses_grade_queue', ['idempotency_key' => $idempotency]);
+        if ($existing) {
+            // Still in flight: this is a genuine duplicate event, collapse it.
+            if (in_array($existing->status, ['pending', 'processing', 'failed'], true)) {
+                return;
+            }
+
+            // Already delivered (or given up on). The key only covers the grade
+            // value, so a grade that moves away and back again lands on the same
+            // key - dropping it here left the remote holding the interim value.
+            $existing->status = 'pending';
+            $existing->attempt_count = 0;
+            $existing->next_attempt_at = time();
+            $existing->last_error = null;
+            $existing->payload_json = json_encode($grade['payload'] ?? []);
+            $existing->updatedat = time();
+            $DB->update_record('local_ses_grade_queue', $existing);
             return;
         }
 
@@ -59,6 +78,8 @@ class queue_service {
     public static function claim_batch(int $limit = 50): array {
         global $DB;
 
+        self::reclaim_stale();
+
         $now = time();
         $sql = "SELECT *
                   FROM {local_ses_grade_queue}
@@ -74,6 +95,51 @@ class queue_service {
         }
 
         return $records;
+    }
+
+    /**
+     * Return rows abandoned mid-flight (cron killed, fatal, deploy) to the queue.
+     *
+     * Without this a row stuck in "processing" is never picked up again by
+     * claim_batch(), so the grade silently stops syncing forever.
+     */
+    public static function reclaim_stale(): void {
+        global $DB;
+
+        $now = time();
+        $DB->execute(
+            "UPDATE {local_ses_grade_queue}
+                SET status = :pending, next_attempt_at = :now, updatedat = :updated
+              WHERE status = :processing
+                AND updatedat < :cutoff",
+            [
+                'pending' => 'pending',
+                'now' => $now,
+                'updated' => $now,
+                'processing' => 'processing',
+                'cutoff' => $now - self::PROCESSING_TIMEOUT,
+            ]
+        );
+    }
+
+    /**
+     * Push a claimed row back without spending one of its retry attempts.
+     *
+     * Used when the failure is ours rather than the record's - an open circuit
+     * says nothing about whether this grade is deliverable.
+     *
+     * @param stdClass $record
+     * @param int $delayseconds
+     * @param string $reason
+     */
+    public static function defer(stdClass $record, int $delayseconds, string $reason = ''): void {
+        global $DB;
+
+        $record->status = 'pending';
+        $record->next_attempt_at = time() + max($delayseconds, 60);
+        $record->last_error = $reason !== '' ? $reason : $record->last_error;
+        $record->updatedat = time();
+        $DB->update_record('local_ses_grade_queue', $record);
     }
 
     /**
@@ -155,8 +221,8 @@ class queue_service {
     public static function get_queue_counts(): array {
         global $DB;
 
-        $statuses = ['pending', 'failed', 'dead'];
-        $result = ['pending' => 0, 'failed' => 0, 'dead' => 0];
+        $statuses = ['pending', 'processing', 'failed', 'dead', 'sent'];
+        $result = array_fill_keys($statuses, 0);
         foreach ($statuses as $status) {
             $result[$status] = $DB->count_records('local_ses_grade_queue', ['status' => $status]);
         }

@@ -2,7 +2,7 @@
 
 Moodle local plugin for integrating Moodle with SchooleesCore (and similar SIS APIs) via configurable field mapping.
 
-Current release: **v0.1.19** (beta; `$plugin->version = 2026021901`)
+Current release: **v0.2.0** (beta; `$plugin->version = 2026082500`)
 
 ## Requirements
 - Moodle **5.0+**
@@ -30,16 +30,62 @@ Then run the Moodle upgrade (`/admin/index.php`).
 
 ## Features
 
-- Settings page with API credentials and payment gating flag.
-- Data schema for user mapping, grade queue, payment cache, and sync logs.
-- Scheduled tasks for user sync, enrollment status sync (no course mapping), grade queue dispatch, payment clearance sync, identity key migration, and log cleanup.
-- Event observer to enqueue grades.
-- Admin pages for dashboard, mappings, queue monitor, and sync history.
+- Settings page with API credentials, field mapping, and feature toggles.
+- Data schema for user mapping, course mapping, grade queue, payment cache, and sync logs.
+- Scheduled tasks for user sync, enrollment status sync, course-mapping discovery, grade queue
+  dispatch, identity key migration, and log cleanup.
+- Event observer on `\core\event\user_graded` that enqueues grades for passback.
+- Admin pages for dashboard, mappings, queue monitor, sync history, and a connection test.
+- Course-mapping auto-discovery from the identifiers SchooleesCore's own Moodle export writes.
 - Webhook endpoint with HMAC signature + timestamp validation.
-- Signed SSO entry point (`sso.php`): HMAC over the external user id and a timestamp, valid for five minutes.
-- Configurable field mapping for usernames, names, emails, enrollment status keys, and profile pictures.
-- Paginated enrollment pulls, so a population larger than one API page cannot leave valid users looking unenrolled.
-- Grade passback that falls back to updating the remote grade when a create hits the duplicate constraint, rather than reporting success and dropping the update.
+- Optional signed SSO entry point (`sso.php`), off by default.
+- Streamed, paginated pulls, so peak memory does not grow with the size of the school.
+- Grade passback that falls back to updating the remote grade when a create hits the duplicate
+  constraint, rather than reporting success and dropping the update.
+
+## SchooleesCore API contract
+
+The endpoints and payloads this plugin depends on, as of v0.2.0:
+
+| Purpose | Call |
+| --- | --- |
+| Health check | `GET /status` (unauthenticated) |
+| Token | `POST /auth` `{username, password}` -> `data.token`, `data.refresh_token`, `data.expires_at` |
+| Token refresh | `POST /auth/refresh-token` `{refresh_token}` |
+| Students | `GET /students?limit&offset` (exact filter: `id_number`) |
+| Enrollments | `GET /enrollments?student_id&academic_year_id&course_offering_id&limit&offset` |
+| Course offerings | `GET /course-offerings?limit&offset` |
+| Grade create | `POST /grades` |
+| Grade update | `PUT /grades/{id}` |
+
+`POST /grades` requires `grade_period_id`, `academic_year_id`, `year_level_id`, `student_id`,
+`course_id` and `grade_input`; `instructor_id`, `course_offering_id` and `enrollment_id` are optional.
+A duplicate is reported as HTTP 422 with `error: "Grade already exists."`.
+
+Do not send unrelated filters alongside an exact one: the API ORs relation filters against the base
+query, so adding `academic_year_id` to a `/students?id_number=` lookup widens the result instead of
+narrowing it.
+
+The API service account needs `view_student`, `view_grade`, `create_grade` and `update_grade`.
+
+### Course mapping
+
+SchooleesCore's `GET /course-offerings/moodle-export` produces a Moodle course-upload CSV in which
+every course carries `idnumber = subject_offering:<course_offering_id>`. If those courses were
+created from that export, run **Discover mappings from Moodle course ID numbers** on the mappings
+page (or let `sync_course_mappings_task` do it) and no manual mapping is needed.
+
+## Known gaps
+
+- **Payment gating does nothing.** `local_ses_payment_cache` is only ever read, never written, because
+  SchooleesCore exposes no clearance endpoint. `enable_payment_gating` is off by default and
+  `sync_payment_clearance_task` is disabled; leave both alone until the endpoint exists.
+- **`local_ses_bridge_config` and `local_ses_enrollment_map` are unused.** They are part of the
+  original multi-tenant/course-mapped design and no code reads or writes them. They are kept rather
+  than dropped so no site loses data on upgrade.
+- **Grade values must satisfy the remote grading scheme.** `POST /grades` validates `grade_input`
+  against the configured scheme, so a raw Moodle 0-100 point score is rejected on a site using, say,
+  a 1.00-5.00 scale. Grade transformation is not implemented.
 
 ## Configuration
 Go to:
@@ -61,7 +107,7 @@ Quick syntax check:
 find . -name '*.php' -print0 | xargs -0 -n1 php -l
 ```
 
-The unit tests are Moodle `advanced_testcase` classes, so they run through Moodle's own PHPUnit harness from an installed site:
+The unit tests are Moodle `advanced_testcase` classes, so they run through Moodle's own PHPUnit harness from an installed site (they cannot run standalone):
 
 ```bash
 # from your Moodle root, with the plugin installed at local/schooleescore_bridge

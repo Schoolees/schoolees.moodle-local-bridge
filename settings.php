@@ -49,11 +49,28 @@ if ($hassiteconfig) {
     ));
 
     $settings->add(new admin_setting_configtext(
+        'local_schooleescore_bridge/default_grade_period_id',
+        get_string('default_grade_period_id', 'local_schooleescore_bridge'),
+        get_string('default_grade_period_id_desc', 'local_schooleescore_bridge'),
+        1,
+        PARAM_INT
+    ));
+
+    // Legacy name for the same value, read only as a fallback so upgraded sites
+    // that set it keep working. The dispatcher prefers default_grade_period_id.
+    $settings->add(new admin_setting_configtext(
         'local_schooleescore_bridge/default_grade_category_id',
         get_string('default_grade_category_id', 'local_schooleescore_bridge'),
         get_string('default_grade_category_id_desc', 'local_schooleescore_bridge'),
-        1,
+        0,
         PARAM_INT
+    ));
+
+    $settings->add(new admin_setting_configcheckbox(
+        'local_schooleescore_bridge/enable_sso',
+        get_string('enable_sso', 'local_schooleescore_bridge'),
+        get_string('enable_sso_desc', 'local_schooleescore_bridge'),
+        0
     ));
 
     $settings->add(new admin_setting_configcheckbox(
@@ -174,7 +191,7 @@ if ($hassiteconfig) {
         'local_schooleescore_bridge/map_enrollment_active_value',
         get_string('map_enrollment_active_value', 'local_schooleescore_bridge'),
         get_string('map_enrollment_active_value_desc', 'local_schooleescore_bridge'),
-        'ongoing',
+        'enrolled',
         PARAM_TEXT
     ));
 
@@ -201,6 +218,22 @@ if ($hassiteconfig) {
     ));
 
     $ADMIN->add('local_schooleescore_bridge', $settings);
+
+    $ADMIN->add('local_schooleescore_bridge', new admin_externalpage(
+        'local_schooleescore_bridge_dashboard',
+        get_string('bridge_dashboard', 'local_schooleescore_bridge'),
+        new moodle_url('/local/schooleescore_bridge/index.php'),
+        'local/schooleescore_bridge:manage'
+    ));
+
+    // mappings.php existed but was not registered anywhere, so the only way to
+    // reach it was to type the URL.
+    $ADMIN->add('local_schooleescore_bridge', new admin_externalpage(
+        'local_schooleescore_bridge_mappings',
+        get_string('mappings', 'local_schooleescore_bridge'),
+        new moodle_url('/local/schooleescore_bridge/mappings.php'),
+        'local/schooleescore_bridge:manage'
+    ));
 
     $ADMIN->add('local_schooleescore_bridge', new admin_externalpage(
         'local_schooleescore_bridge_connection',

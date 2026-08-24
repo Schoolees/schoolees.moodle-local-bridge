@@ -36,7 +36,9 @@ foreach ($logs as $log) {
         s($log->result),
         s($log->trace_id),
         s((string)$log->http_status),
-        shorten_text((string)$log->error_message, 120),
+        // html_writer::table does not escape cells, and this text comes back
+        // from the remote API - it must not be trusted as markup.
+        s(shorten_text((string)$log->error_message, 120)),
     ];
 }
 

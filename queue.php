@@ -46,7 +46,8 @@ foreach ($records as $record) {
         s($record->status),
         (int)$record->attempt_count,
         $record->next_attempt_at ? userdate($record->next_attempt_at) : '-',
-        shorten_text((string)$record->last_error, 120),
+        // Remote error text; html_writer::table renders cells verbatim.
+        s(shorten_text((string)$record->last_error, 120)),
         $action,
     ];
 }

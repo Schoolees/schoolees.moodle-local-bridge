@@ -4,14 +4,20 @@ namespace local_schooleescore_bridge\local;
 defined('MOODLE_INTERNAL') || die();
 
 /**
- * Lightweight circuit breaker backed by plugin config.
+ * Lightweight circuit breaker backed by an application cache.
  */
 class circuit_breaker {
-    /** @var int */
+    /** @var int Rolling window used to compute the error rate. */
     private const WINDOW_SECONDS = 300;
 
-    /** @var int */
+    /** @var int How long the circuit stays open once tripped. */
     private const OPEN_SECONDS = 600;
+
+    /** @var int Minimum samples before the error rate means anything. */
+    private const MIN_SAMPLES = 10;
+
+    /** @var float Error rate above which the circuit opens. */
+    private const ERROR_RATE = 0.5;
 
     /**
      * Returns true when endpoint circuit is open.
@@ -20,9 +26,19 @@ class circuit_breaker {
      * @return bool
      */
     public static function is_open(string $endpoint): bool {
-        $key = self::open_key($endpoint);
-        $until = (int)get_config('local_schooleescore_bridge', $key);
+        $until = (int)self::cache()->get(self::open_key($endpoint));
         return $until > time();
+    }
+
+    /**
+     * Seconds until the circuit closes again, or 0 when it is already closed.
+     *
+     * @param string $endpoint
+     * @return int
+     */
+    public static function seconds_until_close(string $endpoint): int {
+        $until = (int)self::cache()->get(self::open_key($endpoint));
+        return max(0, $until - time());
     }
 
     /**
@@ -32,26 +48,24 @@ class circuit_breaker {
      * @param bool $success
      */
     public static function record_result(string $endpoint, bool $success): void {
+        $cache = self::cache();
         $key = self::history_key($endpoint);
-        $raw = (string)get_config('local_schooleescore_bridge', $key);
-        $entries = json_decode($raw, true);
+
+        $entries = $cache->get($key);
         if (!is_array($entries)) {
             $entries = [];
         }
 
         $now = time();
-        $entries[] = [
-            't' => $now,
-            's' => $success ? 1 : 0,
-        ];
+        $entries[] = ['t' => $now, 's' => $success ? 1 : 0];
 
-        $entries = array_values(array_filter($entries, static function(array $entry) use ($now): bool {
-            return !empty($entry['t']) && ((int)$entry['t']) >= ($now - self::WINDOW_SECONDS);
+        $entries = array_values(array_filter($entries, static function($entry) use ($now): bool {
+            return is_array($entry) && !empty($entry['t']) && ((int)$entry['t']) >= ($now - self::WINDOW_SECONDS);
         }));
 
-        set_config($key, json_encode($entries), 'local_schooleescore_bridge');
+        $cache->set($key, $entries);
 
-        if (count($entries) < 10) {
+        if (count($entries) < self::MIN_SAMPLES) {
             return;
         }
 
@@ -62,10 +76,27 @@ class circuit_breaker {
             }
         }
 
-        $errorrate = $failures / count($entries);
-        if ($errorrate > 0.5) {
-            set_config(self::open_key($endpoint), (string)($now + self::OPEN_SECONDS), 'local_schooleescore_bridge');
+        if (($failures / count($entries)) > self::ERROR_RATE) {
+            $cache->set(self::open_key($endpoint), $now + self::OPEN_SECONDS);
         }
+    }
+
+    /**
+     * Close the circuit and forget the sample window (used by the admin UI/tests).
+     *
+     * @param string $endpoint
+     */
+    public static function reset(string $endpoint): void {
+        $cache = self::cache();
+        $cache->delete(self::open_key($endpoint));
+        $cache->delete(self::history_key($endpoint));
+    }
+
+    /**
+     * @return \cache_application|\cache_session|\cache_store
+     */
+    private static function cache() {
+        return \cache::make('local_schooleescore_bridge', 'circuitbreaker');
     }
 
     /**
@@ -73,7 +104,7 @@ class circuit_breaker {
      * @return string
      */
     private static function history_key(string $endpoint): string {
-        return 'cb_hist_' . substr(sha1($endpoint), 0, 12);
+        return 'hist_' . substr(sha1($endpoint), 0, 12);
     }
 
     /**
@@ -81,6 +112,6 @@ class circuit_breaker {
      * @return string
      */
     private static function open_key(string $endpoint): string {
-        return 'cb_open_' . substr(sha1($endpoint), 0, 12);
+        return 'open_' . substr(sha1($endpoint), 0, 12);
     }
 }

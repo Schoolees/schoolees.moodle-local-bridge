@@ -21,9 +21,15 @@ class observers {
         if (empty($data['relateduserid']) || empty($data['courseid'])) {
             return;
         }
-        $gradeitemid = 0;
+
+        // user_graded carries itemid/finalgrade in "other"; fall back to the row
+        // it points at, which is still the authority for the raw grade.
+        $gradeitemid = (int)($data['other']['itemid'] ?? 0);
         $graderaw = null;
-        $gradefinal = null;
+        $gradefinal = array_key_exists('finalgrade', $data['other'] ?? [])
+            ? $data['other']['finalgrade']
+            : null;
+
         if (!empty($data['objectid'])) {
             $gradegrade = $DB->get_record('grade_grades', ['id' => (int)$data['objectid']]);
             if ($gradegrade) {
@@ -31,6 +37,10 @@ class observers {
                 $graderaw = $gradegrade->rawgrade;
                 $gradefinal = $gradegrade->finalgrade;
             }
+        }
+
+        if ($gradeitemid <= 0) {
+            return;
         }
 
         $payload = [

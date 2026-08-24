@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/schooleescore_bridge/db" VERSION="2026021700" COMMENT="XMLDB file for local_schooleescore_bridge"
+<XMLDB PATH="local/schooleescore_bridge/db" VERSION="2026082500" COMMENT="XMLDB file for local_schooleescore_bridge"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -31,6 +31,7 @@
         <FIELD NAME="moodle_userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="schooleescore_user_id" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="schooleescore_student_no" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="schooleescore_external_id" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false" COMMENT="Numeric primary key of the record in SchooleesCore (students.id). Kept separately from the identity key because the identity key is an id_number."/>
         <FIELD NAME="user_type" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="sync_status" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="last_synced_at" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
@@ -56,6 +57,7 @@
         <FIELD NAME="moodle_courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="schooleescore_subject_id" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="schooleescore_section_id" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="schooleescore_course_offering_id" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false" COMMENT="course_offerings.id in SchooleesCore, discovered from a Moodle course idnumber of subject_offering:&lt;id&gt;."/>
         <FIELD NAME="academic_year_code" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="semester_code" TYPE="char" LENGTH="32" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="sync_enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>

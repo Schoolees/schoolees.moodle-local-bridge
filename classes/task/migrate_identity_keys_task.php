@@ -74,8 +74,9 @@ class migrate_identity_keys_task extends base_bridge_task {
                 );
                 if ($exists) {
                     $conflicts++;
-                    if (empty($map->schooleescore_student_no)) {
-                        $map->schooleescore_student_no = $newkey;
+                    if (empty($map->schooleescore_student_no) || empty($map->schooleescore_external_id)) {
+                        $map->schooleescore_student_no = $map->schooleescore_student_no ?: $newkey;
+                        $map->schooleescore_external_id = $map->schooleescore_external_id ?: $oldkey;
                         $map->updatedat = time();
                         $DB->update_record('local_ses_user_map', $map);
                     }
@@ -84,6 +85,9 @@ class migrate_identity_keys_task extends base_bridge_task {
 
                 $map->schooleescore_user_id = $newkey;
                 $map->schooleescore_student_no = $newkey;
+                // $oldkey is the remote primary key this row used to be keyed on;
+                // keep it so grade passback still has a real student_id to send.
+                $map->schooleescore_external_id = $oldkey;
                 $map->updatedat = time();
                 $DB->update_record('local_ses_user_map', $map);
                 $updated++;
@@ -122,7 +126,7 @@ class migrate_identity_keys_task extends base_bridge_task {
         $limit = 500;
         $offset = 0;
         do {
-            $response = $client->get_json('/students', ['limit' => $limit, 'offset' => $offset]);
+            $response = $client->get_json(api_client::PATH_STUDENTS, ['limit' => $limit, 'offset' => $offset]);
             if (($response['status'] ?? 0) !== 200) {
                 sync_log_service::log([
                     'job_name' => 'migrate_identity_keys',

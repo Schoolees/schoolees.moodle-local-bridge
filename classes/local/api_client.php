@@ -8,8 +8,23 @@ require_once($CFG->libdir . '/filelib.php');
  * SchooleesCore API client wrapper.
  */
 class api_client {
+    /**
+     * Endpoint paths, kept here so a contract change is a one-line edit.
+     *
+     * SchooleesCore retired /students-enrolled in favour of /enrollments; the
+     * old path 404s, which silently emptied every enrollment pull.
+     */
+    public const PATH_STATUS = '/status';
+    public const PATH_STUDENTS = '/students';
+    public const PATH_ENROLLMENTS = '/enrollments';
+    public const PATH_GRADES = '/grades';
+    public const PATH_COURSE_OFFERINGS = '/course-offerings';
+
     /** @var string */
     private $baseurl;
+
+    /** @var bool Guard so a 401 retry cannot recurse. */
+    private $reauthenticating = false;
 
     /**
      * Constructor.
@@ -81,6 +96,37 @@ class api_client {
     }
 
     /**
+     * Iterate an offset-paginated collection endpoint one page at a time.
+     *
+     * Yields [$rows, $response] per page so callers can react to a mid-run
+     * failure without first buffering the whole population in memory.
+     *
+     * @param string $path
+     * @param array $params
+     * @param int $pagesize
+     * @return \Generator
+     */
+    public function each_page(string $path, array $params = [], int $pagesize = 500): \Generator {
+        $offset = 0;
+        do {
+            $pageparams = $params;
+            $pageparams['limit'] = $pagesize;
+            $pageparams['offset'] = $offset;
+
+            $response = $this->get_json($path, $pageparams);
+            if (($response['status'] ?? 0) !== 200) {
+                yield [[], $response];
+                return;
+            }
+
+            $rows = self::extract_rows($response['body'] ?? null);
+            yield [$rows, $response];
+
+            $offset += $pagesize;
+        } while (count($rows) >= $pagesize);
+    }
+
+    /**
      * Request helper.
      *
      * @param string $method
@@ -128,6 +174,19 @@ class api_client {
         }
         $info = $curl->get_info();
         $status = (int)($info['http_code'] ?? 0);
+
+        // A cached token can be revoked server side long before it expires. Drop
+        // it and try once more, otherwise every job fails until the clock runs out.
+        if ($status === 401 && $authrequired && !$this->reauthenticating) {
+            $this->reauthenticating = true;
+            try {
+                $this->forget_tokens();
+                return $this->request($method, $url, $payload, $idempotencykey, true);
+            } finally {
+                $this->reauthenticating = false;
+            }
+        }
+
         $decoded = json_decode((string)$body, true);
 
         return [
@@ -190,7 +249,18 @@ class api_client {
         set_config('api_access_token', (string)($data['token'] ?? ''), 'local_schooleescore_bridge');
         set_config('api_access_expires_at', (string)$this->to_epoch($data['expires_at'] ?? null), 'local_schooleescore_bridge');
         set_config('api_refresh_token', (string)($data['refresh_token'] ?? ''), 'local_schooleescore_bridge');
-        set_config('api_refresh_expires_at', (string)$this->to_epoch($data['refresh_token_expires_at'] ?? null), 'local_schooleescore_bridge');
+        set_config('api_refresh_expires_at', (string)$this->to_epoch($data['refresh_token_expires_at'] ?? null),
+            'local_schooleescore_bridge');
+    }
+
+    /**
+     * Discard cached tokens so the next call re-runs the credential flow.
+     */
+    private function forget_tokens(): void {
+        set_config('api_access_token', '', 'local_schooleescore_bridge');
+        set_config('api_access_expires_at', '0', 'local_schooleescore_bridge');
+        set_config('api_refresh_token', '', 'local_schooleescore_bridge');
+        set_config('api_refresh_expires_at', '0', 'local_schooleescore_bridge');
     }
 
     /**

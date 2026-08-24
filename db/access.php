@@ -13,7 +13,9 @@ $capabilities = [
         ],
     ],
     'local/schooleescore_bridge:viewlogs' => [
-        'riskbitmask' => RISK_DATALOSS,
+        // The sync history exposes identity keys and request/response bodies:
+        // that is a personal-data risk, not a data-loss one.
+        'riskbitmask' => RISK_PERSONAL,
         'captype' => 'read',
         'contextlevel' => CONTEXT_SYSTEM,
         'archetypes' => [

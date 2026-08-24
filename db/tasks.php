@@ -41,10 +41,22 @@ $tasks = [
         'month' => '*',
     ],
     [
+        // Disabled by default: SchooleesCore has no clearance endpoint yet, so
+        // running this every 30 minutes only produced log noise.
         'classname' => '\\local_schooleescore_bridge\\task\\sync_payment_clearance_task',
         'blocking' => 0,
-        'minute' => '*/30',
-        'hour' => '*',
+        'minute' => '43',
+        'hour' => '3',
+        'day' => '*',
+        'dayofweek' => '*',
+        'month' => '*',
+        'disabled' => 1,
+    ],
+    [
+        'classname' => '\\local_schooleescore_bridge\\task\\sync_course_mappings_task',
+        'blocking' => 0,
+        'minute' => '23',
+        'hour' => '*/6',
         'day' => '*',
         'dayofweek' => '*',
         'month' => '*',
