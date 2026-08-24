@@ -2,7 +2,7 @@
 
 Moodle local plugin for integrating Moodle with SchooleesCore (and similar SIS APIs) via configurable field mapping.
 
-Current release: **v0.1.18**
+Current release: **v0.1.19** (beta; `$plugin->version = 2026021901`)
 
 ## Requirements
 - Moodle **5.0+**
@@ -28,15 +28,18 @@ Then run the Moodle upgrade (`/admin/index.php`).
 - The release ZIP root must contain that `schooleescore_bridge/` directory.
 - Expected install path after extraction: `<moodle-root>/local/schooleescore_bridge`.
 
-## Features (MVP)
+## Features
 
 - Settings page with API credentials and payment gating flag.
 - Data schema for user mapping, grade queue, payment cache, and sync logs.
-- Scheduled tasks for user sync, enrollment status sync (no course mapping), queue dispatch, payment clearance sync, and log cleanup.
+- Scheduled tasks for user sync, enrollment status sync (no course mapping), grade queue dispatch, payment clearance sync, identity key migration, and log cleanup.
 - Event observer to enqueue grades.
 - Admin pages for dashboard, mappings, queue monitor, and sync history.
 - Webhook endpoint with HMAC signature + timestamp validation.
+- Signed SSO entry point (`sso.php`): HMAC over the external user id and a timestamp, valid for five minutes.
 - Configurable field mapping for usernames, names, emails, enrollment status keys, and profile pictures.
+- Paginated enrollment pulls, so a population larger than one API page cannot leave valid users looking unenrolled.
+- Grade passback that falls back to updating the remote grade when a create hits the duplicate constraint, rather than reporting success and dropping the update.
 
 ## Configuration
 Go to:
@@ -49,6 +52,24 @@ Key settings:
 - Default password template for created users
 - Optional profile picture sync (URL field mapping)
 - Optional suspension of unenrolled students
+
+## Development
+
+Quick syntax check:
+
+```bash
+find . -name '*.php' -print0 | xargs -0 -n1 php -l
+```
+
+The unit tests are Moodle `advanced_testcase` classes, so they run through Moodle's own PHPUnit harness from an installed site:
+
+```bash
+# from your Moodle root, with the plugin installed at local/schooleescore_bridge
+php admin/tool/phpunit/cli/init.php
+vendor/bin/phpunit local/schooleescore_bridge/tests
+```
+
+Release notes are in `CHANGELOG.md`; contribution notes are in `CONTRIBUTING.md`. The numeric `$plugin->version` in `version.php` is what drives Moodle upgrades, and the `release` string beside it is the tag.
 
 ## Privacy
 This plugin transfers user/enrollment/grade data between Moodle and the configured external system.
